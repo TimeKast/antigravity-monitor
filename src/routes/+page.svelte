@@ -1,18 +1,30 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import InstanceCard from '$lib/InstanceCard.svelte';
-  import Settings from '$lib/Settings.svelte';
-  import { instances, settings, scanForInstances, refreshInstances } from '$lib/store';
-  import type { Instance } from '$lib/types';
+  import { onMount, onDestroy } from "svelte";
+  import InstanceCard from "$lib/InstanceCard.svelte";
+  import Settings from "$lib/Settings.svelte";
+  import {
+    instances,
+    settings,
+    scanForInstances,
+    refreshInstances,
+    startAutoImplementation,
+    stopAutoImplementation,
+    stopUIPolling,
+  } from "$lib/store";
+  import type { Instance } from "$lib/types";
 
   let showSettings = $state(false);
   let scanning = $state(false);
+  let polling = $state(false);
 
-  onMount(async () => {
-    await handleScan();
+  onMount(() => {
+    handleScan();
     // Refresh instances every 10 seconds
     const interval = setInterval(refreshInstances, 10000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      stopUIPolling();
+    };
   });
 
   async function handleScan() {
@@ -22,11 +34,22 @@
   }
 
   function toggleInstance(id: string) {
-    instances.update((list: Instance[]) => 
-      list.map((inst: Instance) => 
-        inst.id === id ? { ...inst, enabled: !inst.enabled } : inst
-      )
+    instances.update((list: Instance[]) =>
+      list.map((inst: Instance) =>
+        inst.id === id ? { ...inst, enabled: !inst.enabled } : inst,
+      ),
     );
+  }
+
+  function togglePolling() {
+    if (polling) {
+      stopAutoImplementation();
+      polling = false;
+    } else {
+      // Use pollIntervalSeconds from settings (convert to ms)
+      startAutoImplementation($settings.pollIntervalSeconds * 1000);
+      polling = true;
+    }
   }
 </script>
 
@@ -37,17 +60,27 @@
       <h1>Antigravity Monitor</h1>
     </div>
     <div class="actions">
-      <button class="btn-scan" onclick={handleScan} disabled={scanning}>
-        {scanning ? '🔄 Scanning...' : '🔍 Scan'}
+      <button class="btn-poll" class:active={polling} onclick={togglePolling}>
+        {polling ? "⏸️ Stop" : "▶️ Auto"}
       </button>
-      <button class="btn-settings" onclick={() => showSettings = !showSettings}>
+      <button class="btn-scan" onclick={handleScan} disabled={scanning}>
+        {scanning ? "🔄 Scanning..." : "🔍 Scan"}
+      </button>
+      <button
+        class="btn-settings"
+        onclick={() => (showSettings = !showSettings)}
+      >
         ⚙️
       </button>
     </div>
   </header>
 
+  {#if polling}
+    <div class="polling-indicator">🔄 Auto-polling active (every 5s)</div>
+  {/if}
+
   {#if showSettings}
-    <Settings onClose={() => showSettings = false} />
+    <Settings onClose={() => (showSettings = false)} />
   {/if}
 
   <section class="instances">
@@ -58,18 +91,19 @@
       </div>
     {:else}
       {#each $instances as instance (instance.id)}
-        <InstanceCard 
-          {instance} 
-          onToggle={() => toggleInstance(instance.id)}
-        />
+        <InstanceCard {instance} onToggle={() => toggleInstance(instance.id)} />
       {/each}
     {/if}
   </section>
 
   <footer>
     <span class="status">
-      {$instances.filter((i: Instance) => i.enabled).length} / {$instances.length} active
+      {$instances.filter((i: Instance) => i.enabled).length} / {$instances.length}
+      active
     </span>
+    {#if polling}
+      <span class="polling-status">🟢 Polling</span>
+    {/if}
   </footer>
 </main>
 
@@ -81,7 +115,7 @@
   }
 
   :global(body) {
-    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-family: "Segoe UI", system-ui, sans-serif;
     background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
     color: #eee;
     min-height: 100vh;
@@ -99,7 +133,7 @@
     justify-content: space-between;
     align-items: center;
     padding: 0.5rem 0;
-    border-bottom: 1px solid rgba(255,255,255,0.1);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     margin-bottom: 1rem;
   }
 
@@ -117,6 +151,7 @@
     font-size: 1.25rem;
     font-weight: 600;
     background: linear-gradient(90deg, #00d9ff, #00ff88);
+    background-clip: text;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
   }
@@ -127,8 +162,8 @@
   }
 
   button {
-    background: rgba(255,255,255,0.1);
-    border: 1px solid rgba(255,255,255,0.2);
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
     color: #eee;
     padding: 0.5rem 1rem;
     border-radius: 8px;
@@ -137,7 +172,7 @@
   }
 
   button:hover:not(:disabled) {
-    background: rgba(255,255,255,0.2);
+    background: rgba(255, 255, 255, 0.2);
     transform: translateY(-1px);
   }
 
@@ -181,12 +216,48 @@
 
   footer {
     padding: 0.5rem 0;
-    border-top: 1px solid rgba(255,255,255,0.1);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
     text-align: center;
   }
 
   .status {
     font-size: 0.8rem;
     opacity: 0.6;
+  }
+
+  .btn-poll {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .btn-poll.active {
+    background: linear-gradient(90deg, #00d9ff, #00ff88);
+    color: #000;
+    font-weight: 600;
+  }
+
+  .polling-indicator {
+    background: rgba(0, 217, 255, 0.15);
+    border: 1px solid rgba(0, 217, 255, 0.3);
+    border-radius: 8px;
+    padding: 0.5rem 1rem;
+    text-align: center;
+    font-size: 0.85rem;
+    margin-bottom: 0.5rem;
+    animation: pulse-glow 2s infinite;
+  }
+
+  @keyframes pulse-glow {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.7;
+    }
+  }
+
+  .polling-status {
+    margin-left: 1rem;
+    font-size: 0.8rem;
   }
 </style>

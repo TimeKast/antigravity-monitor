@@ -1,6 +1,6 @@
 // Types for Antigravity Monitor
 
-export type InstanceStatus = 'idle' | 'working' | 'error' | 'complete' | 'disabled';
+export type InstanceStatus = 'idle' | 'working' | 'error' | 'complete' | 'disabled' | 'blocked';
 
 export interface Instance {
     id: string;
@@ -17,6 +17,11 @@ export interface Instance {
     status: InstanceStatus;
     lastActivity: number;
     stepCount: number;
+    // New fields for auto-implementation
+    lastResponse?: string;
+    isBlocked?: boolean;
+    blockReason?: string;
+    issuesCompleted?: number;
 }
 
 export interface Settings {
@@ -27,10 +32,21 @@ export interface Settings {
     notifyOnComplete: boolean;
     notifyOnError: boolean;
     minimizeToTray: boolean;
+    // New fields for auto-implementation
+    autoPrompt: string;
+    pollIntervalSeconds: number;
+    stopConditions: string[];
 }
 
 export interface ScanResult {
     windowTitle: string;
     windowHandle: number;
     processId: number;
+}
+
+// Stop condition detection result
+export interface StopCondition {
+    detected: boolean;
+    condition: string;
+    message: string;
 }

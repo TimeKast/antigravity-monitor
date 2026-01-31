@@ -49,10 +49,20 @@ function Get-VSCodeWindows {
                 [WindowScanner]::GetWindowText($hWnd, $sb, $sb.Capacity) | Out-Null
                 $title = $sb.ToString()
                 
-                # Match VS Code or Antigravity windows, but exclude the monitor itself
-                if ($title -match "(Visual Studio Code|Code|Antigravity)" -and 
-                    $title -notmatch "^Visual Studio$" -and
-                    $title -notmatch "Antigravity Monitor") {
+                # Match Antigravity project windows: contains " - Antigravity" (case insensitive)
+                $isAntigravity = $title -match " - Antigravity"
+                
+                # Exclusions (case insensitive)
+                $isMonitor = $title -match "Antigravity Monitor|antigravity-monitor"
+                $isPlugin = $title -match "@tauri-apps|plugin-"
+                $isShortcut = $title -match "shortcut for"
+                $isSearch = $title -match "^Buscar con Google|^Search with Google"
+                
+                if ($isAntigravity -and 
+                    -not $isMonitor -and 
+                    -not $isPlugin -and 
+                    -not $isShortcut -and
+                    -not $isSearch) {
                     $processId = 0
                     [WindowScanner]::GetWindowThreadProcessId($hWnd, [ref]$processId) | Out-Null
                     
