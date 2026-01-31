@@ -325,14 +325,16 @@ try {
             $result.chatButtonColor = "gray"
             
             # ========== GRAY BUTTON: Chat is ready ==========
-            # First, search for Retry button in the dialog area
-            $retryStartY = [int]($height * 0.30)
-            $retryEndY = [int]($height * 0.80)
+            # First, search for Retry button in the dialog area (near bottom, like Accept all)
+            # Retry popup appears in the lower portion of the chat, search bottom-up
+            $retryStartY = [int]($height * 0.50)    # Start from middle
+            $retryEndY = [int]($height * 0.95)      # To near bottom
             $retryStartX = [int]($width * 0.50)
             $retryEndX = [int]($width * 0.98)
             
-            for ($y = $retryStartY; $y -lt $retryEndY -and -not $result.hasRetryButton; $y += 20) {
-                for ($x = $retryStartX; $x -lt $retryEndX; $x += 25) {
+            # Search from BOTTOM to TOP (more likely to find Retry at bottom first)
+            for ($y = $retryEndY; $y -gt $retryStartY -and -not $result.hasRetryButton; $y -= 15) {
+                for ($x = $retryStartX; $x -lt $retryEndX; $x += 20) {
                     $px = $rect.Left + $x
                     $py = $rect.Top + $y
                     

@@ -268,6 +268,8 @@ fn click_button(window_handle: i64, screen_x: i32, screen_y: i32) -> Result<bool
             .unwrap_or_else(|| std::path::PathBuf::from("scripts/click-button.ps1"))
     };
 
+    println!("[click_button] Script path: {:?}", script_path);
+    println!("[click_button] Script exists: {}", script_path.exists());
     let output = Command::new("powershell")
         .args([
             "-ExecutionPolicy",
@@ -285,6 +287,13 @@ fn click_button(window_handle: i64, screen_x: i32, screen_y: i32) -> Result<bool
         .map_err(|e| format!("Failed to execute PowerShell: {}", e))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    println!("[click_button] Clicked at ({}, {})", screen_x, screen_y);
+    println!("[click_button] stdout: {}", stdout);
+    if !stderr.is_empty() {
+        println!("[click_button] stderr: {}", stderr);
+    }
 
     // Check if success in output
     Ok(stdout.contains("\"success\":true") || stdout.contains("success\": true"))

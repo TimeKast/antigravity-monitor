@@ -663,7 +663,9 @@ async function pollOnce(): Promise<void> {
                         console.log(`[${instance.projectName}] Max retries (${maxRetries}) reached - Discord notified`);
                     } else {
                         // Click retry and increment counter
-                        await clickRetryButton(instance.windowHandle, uiState.retryButtonX, uiState.retryButtonY);
+                        console.log(`[${instance.projectName}] Attempting click at Retry coordinates: (${uiState.retryButtonX}, ${uiState.retryButtonY})`);
+                        const clickResult = await clickRetryButton(instance.windowHandle, uiState.retryButtonX, uiState.retryButtonY);
+                        console.log(`[${instance.projectName}] Click result: ${clickResult}`);
                         instances.update(list =>
                             list.map(i => i.id === instance.id
                                 ? { ...i, retryCount: i.retryCount + 1, lastActivity: Date.now() }
