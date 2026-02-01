@@ -45,6 +45,12 @@ fn get_script_path(script_name: &str) -> PathBuf {
             .and_then(|p| p.parent().map(|d| d.to_path_buf()));
 
         if let Some(ref dir) = exe_dir {
+            // Try _up_/scripts/ (Tauri NSIS installer location)
+            let up_scripts = dir.join("_up_").join("scripts").join(script_name);
+            if up_scripts.exists() {
+                return up_scripts;
+            }
+
             // Try direct script file in exe dir
             let direct = dir.join(script_name);
             if direct.exists() {
@@ -58,9 +64,9 @@ fn get_script_path(script_name: &str) -> PathBuf {
             }
         }
 
-        // Fallback
+        // Fallback to _up_/scripts (most likely for NSIS)
         exe_dir
-            .map(|d| d.join(script_name))
+            .map(|d| d.join("_up_").join("scripts").join(script_name))
             .unwrap_or_else(|| PathBuf::from(script_name))
     }
 }
