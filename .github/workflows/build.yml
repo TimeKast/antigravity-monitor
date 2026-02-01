@@ -16,7 +16,7 @@ jobs:
           - platform: windows-latest
             args: ""
           - platform: macos-latest
-            args: "--target universal-apple-darwin"
+            args: ""
 
     runs-on: ${{ matrix.platform }}
 
@@ -33,12 +33,6 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Add Rust targets (macOS universal)
-        if: matrix.platform == 'macos-latest'
-        run: |
-          rustup target add aarch64-apple-darwin
-          rustup target add x86_64-apple-darwin
-
       - name: Install dependencies (Ubuntu only)
         if: matrix.platform == 'ubuntu-22.04'
         run: |
@@ -49,12 +43,19 @@ jobs:
         run: npm ci
 
       - name: Build Tauri app
-        id: tauri-build
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: ${{ matrix.args }}
+
+      - name: List build outputs (debug)
+        if: always()
+        run: |
+          echo "=== Listing src-tauri/target ==="
+          find src-tauri/target -name "*.dmg" -o -name "*.app" -o -name "*.msi" -o -name "*.exe" 2>/dev/null || dir src-tauri/target /s /b 2>nul | findstr /i ".dmg .app .msi .exe"
+        shell: bash
+        continue-on-error: true
 
       - name: Upload Windows artifacts
         if: matrix.platform == 'windows-latest'
@@ -70,7 +71,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: macos-installer
-          path: ${{ steps.tauri-build.outputs.artifactPaths }}
+          path: |
+            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/release/bundle/macos/*.app
 
   release:
     needs: build
