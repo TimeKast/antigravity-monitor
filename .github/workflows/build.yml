@@ -49,6 +49,7 @@ jobs:
         run: npm ci
 
       - name: Build Tauri app
+        id: tauri-build
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -69,9 +70,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: macos-installer
-          path: |
-            src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
-            src-tauri/target/release/bundle/dmg/*.dmg
+          path: ${{ steps.tauri-build.outputs.artifactPaths }}
 
   release:
     needs: build
