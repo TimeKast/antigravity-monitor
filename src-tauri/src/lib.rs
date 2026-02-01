@@ -2,6 +2,7 @@
 // Commands for window scanning, monitoring, and system integration
 
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::process::Command;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -29,27 +30,64 @@ pub struct InstanceStatus {
     pub step_count: u32,
 }
 
-/// Scan for VS Code / Antigravity windows using PowerShell
-#[tauri::command]
-fn scan_windows() -> Result<Vec<ScanResult>, String> {
-    // In development, use the project directory
-    // In production, use the exe directory
-    let script_path = if cfg!(debug_assertions) {
+/// Helper function to find script path in multiple locations
+fn get_script_path(script_name: &str) -> PathBuf {
+    if cfg!(debug_assertions) {
         // Development: use CARGO_MANIFEST_DIR (src-tauri) parent + scripts
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
-            .map(|p| p.join("scripts").join("detect-windows.ps1"))
-            .unwrap_or_else(|| std::path::PathBuf::from("scripts/detect-windows.ps1"))
+            .map(|p| p.join("scripts").join(script_name))
+            .unwrap_or_else(|| PathBuf::from(format!("scripts/{}", script_name)))
     } else {
-        // Production: use exe directory + scripts
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| {
-                p.parent()
-                    .map(|p| p.join("scripts").join("detect-windows.ps1"))
-            })
-            .unwrap_or_else(|| std::path::PathBuf::from("scripts/detect-windows.ps1"))
-    };
+        // Production: try multiple locations
+        let exe_path = std::env::current_exe().ok();
+
+        // Try: exe_dir/scripts/
+        if let Some(ref exe) = exe_path {
+            let path = exe.parent().map(|p| p.join("scripts").join(script_name));
+            if let Some(ref p) = path {
+                if p.exists() {
+                    return p.clone();
+                }
+            }
+        }
+
+        // Try: exe_dir/../scripts/ (for some installers)
+        if let Some(ref exe) = exe_path {
+            let path = exe
+                .parent()
+                .and_then(|p| p.parent())
+                .map(|p| p.join("scripts").join(script_name));
+            if let Some(ref p) = path {
+                if p.exists() {
+                    return p.clone();
+                }
+            }
+        }
+
+        // Try: exe_dir/resources/scripts/ (Tauri bundled resources)
+        if let Some(ref exe) = exe_path {
+            let path = exe
+                .parent()
+                .map(|p| p.join("resources").join("scripts").join(script_name));
+            if let Some(ref p) = path {
+                if p.exists() {
+                    return p.clone();
+                }
+            }
+        }
+
+        // Fallback to exe_dir/scripts (most common)
+        exe_path
+            .and_then(|p| p.parent().map(|p| p.join("scripts").join(script_name)))
+            .unwrap_or_else(|| PathBuf::from(format!("scripts/{}", script_name)))
+    }
+}
+
+/// Scan for VS Code / Antigravity windows using PowerShell
+#[tauri::command]
+fn scan_windows() -> Result<Vec<ScanResult>, String> {
+    let script_path = get_script_path("detect-windows.ps1");
 
     let output = Command::new("powershell")
         .args([
@@ -110,20 +148,7 @@ fn get_instance_status(_window_handle: i64) -> Result<InstanceStatus, String> {
 /// Paste a prompt to a specific window
 #[tauri::command]
 fn paste_prompt(window_title: String, prompt: String, instance_id: String) -> Result<(), String> {
-    let script_path = if cfg!(debug_assertions) {
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .map(|p| p.join("scripts").join("paste-prompt.ps1"))
-            .unwrap_or_else(|| std::path::PathBuf::from("scripts/paste-prompt.ps1"))
-    } else {
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| {
-                p.parent()
-                    .map(|p| p.join("scripts").join("paste-prompt.ps1"))
-            })
-            .unwrap_or_else(|| std::path::PathBuf::from("scripts/paste-prompt.ps1"))
-    };
+    let script_path = get_script_path("paste-prompt.ps1");
 
     let output = Command::new("powershell")
         .args([
@@ -182,20 +207,7 @@ pub struct UIStateResult {
 /// Detect UI state (buttons) for a window using PowerShell
 #[tauri::command]
 fn detect_ui_state(window_handle: i64) -> Result<UIStateResult, String> {
-    let script_path = if cfg!(debug_assertions) {
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .map(|p| p.join("scripts").join("detect-ui-state.ps1"))
-            .unwrap_or_else(|| std::path::PathBuf::from("scripts/detect-ui-state.ps1"))
-    } else {
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| {
-                p.parent()
-                    .map(|p| p.join("scripts").join("detect-ui-state.ps1"))
-            })
-            .unwrap_or_else(|| std::path::PathBuf::from("scripts/detect-ui-state.ps1"))
-    };
+    let script_path = get_script_path("detect-ui-state.ps1");
 
     println!("[detect_ui_state] Script path: {:?}", script_path);
     println!("[detect_ui_state] Script exists: {}", script_path.exists());
