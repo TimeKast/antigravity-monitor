@@ -39,47 +39,51 @@ fn get_script_path(script_name: &str) -> PathBuf {
             .map(|p| p.join("scripts").join(script_name))
             .unwrap_or_else(|| PathBuf::from(format!("scripts/{}", script_name)))
     } else {
-        // Production: try multiple locations
+        // Production: try multiple locations where Tauri might bundle resources
         let exe_path = std::env::current_exe().ok();
+        let exe_dir = exe_path.as_ref().and_then(|p| p.parent());
 
-        // Try: exe_dir/scripts/
-        if let Some(ref exe) = exe_path {
-            let path = exe.parent().map(|p| p.join("scripts").join(script_name));
-            if let Some(ref p) = path {
-                if p.exists() {
-                    return p.clone();
-                }
+        // Log the exe location for debugging
+        if let Some(ref dir) = exe_dir {
+            eprintln!("[get_script_path] Exe dir: {:?}", dir);
+        }
+
+        // List of possible locations to check
+        let possible_paths: Vec<PathBuf> = exe_dir
+            .map(|dir| {
+                vec![
+                    // 1. exe_dir/scripts/script.ps1 (most common for development)
+                    dir.join("scripts").join(script_name),
+                    // 2. exe_dir/_up_/scripts/script.ps1 (MSI installer)
+                    dir.parent()
+                        .map(|p| p.join("scripts").join(script_name))
+                        .unwrap_or_default(),
+                    // 3. exe_dir/resources/scripts/script.ps1 (Tauri resources)
+                    dir.join("resources").join("scripts").join(script_name),
+                    // 4. exe_dir/script.ps1 (flat structure - resources copied directly)
+                    dir.join(script_name),
+                    // 5. exe_dir/_up_resources/scripts/script.ps1 (alternative Tauri structure)
+                    dir.join("_up_resources").join("scripts").join(script_name),
+                ]
+            })
+            .unwrap_or_default();
+
+        // Check each path and return the first one that exists
+        for path in &possible_paths {
+            eprintln!(
+                "[get_script_path] Checking: {:?} exists={}",
+                path,
+                path.exists()
+            );
+            if path.exists() {
+                return path.clone();
             }
         }
 
-        // Try: exe_dir/../scripts/ (for some installers)
-        if let Some(ref exe) = exe_path {
-            let path = exe
-                .parent()
-                .and_then(|p| p.parent())
-                .map(|p| p.join("scripts").join(script_name));
-            if let Some(ref p) = path {
-                if p.exists() {
-                    return p.clone();
-                }
-            }
-        }
-
-        // Try: exe_dir/resources/scripts/ (Tauri bundled resources)
-        if let Some(ref exe) = exe_path {
-            let path = exe
-                .parent()
-                .map(|p| p.join("resources").join("scripts").join(script_name));
-            if let Some(ref p) = path {
-                if p.exists() {
-                    return p.clone();
-                }
-            }
-        }
-
-        // Fallback to exe_dir/scripts (most common)
-        exe_path
-            .and_then(|p| p.parent().map(|p| p.join("scripts").join(script_name)))
+        // Fallback: return the first path even if it doesn't exist (for error messages)
+        possible_paths
+            .into_iter()
+            .next()
             .unwrap_or_else(|| PathBuf::from(format!("scripts/{}", script_name)))
     }
 }

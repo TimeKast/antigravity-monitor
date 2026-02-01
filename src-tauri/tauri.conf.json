@@ -43,8 +43,8 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": [
-      "../scripts/*"
-    ]
+    "resources": {
+      "scripts": "../scripts/*"
+    }
   }
 }
