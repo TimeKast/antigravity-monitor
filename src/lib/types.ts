@@ -22,6 +22,7 @@ export interface Instance {
     isBlocked?: boolean;
     blockReason?: string;
     issuesCompleted?: number;
+    lastPromptSent?: number;  // Timestamp of last prompt sent (for inactivity timeout)
 }
 
 export interface Settings {
@@ -36,6 +37,7 @@ export interface Settings {
     autoPrompt: string;
     pollIntervalSeconds: number;
     stopConditions: string[];
+    inactivityTimeoutMinutes: number;  // Minutes before stopping inactive project (default 20)
 }
 
 export interface ScanResult {

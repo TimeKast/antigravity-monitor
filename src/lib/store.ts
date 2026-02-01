@@ -23,7 +23,8 @@ const defaultSettings: Settings = {
         'Blocked By',
         'ESCALAR',
         '✅ BACKLOG COMPLETADO'
-    ]
+    ],
+    inactivityTimeoutMinutes: 20  // Stop project if no prompt sent in 20 minutes
 };
 
 // Load settings from localStorage
@@ -98,8 +99,8 @@ export async function scanForInstances(): Promise<void> {
 
         instances.set(newInstances);
         
-        // Update backlog info for each instance (async, doesn't block)
-        updateInstanceBacklogs();
+        // Update backlog info for each instance (wait for it to complete)
+        await updateInstanceBacklogs();
     } catch (error) {
         console.error('Failed to scan for instances:', error);
         // Fallback: use mock data for development without Tauri
@@ -193,8 +194,15 @@ export async function refreshInstances(): Promise<void> {
                 windowHandle: instance.windowHandle
             });
 
+            // Don't overwrite fields managed by polling (stepCount, retryCount, backlog fields)
+            // Only update status and lastActivity from get_instance_status
             instances.update(list =>
-                list.map(i => i.id === instance.id ? { ...i, ...status } : i)
+                list.map(i => i.id === instance.id ? { 
+                    ...i, 
+                    status: status.status,
+                    lastActivity: status.lastActivity
+                    // NOT including: stepCount, retryCount, totalIssues, currentIssue, issuesCompleted
+                } : i)
             );
         } catch (error) {
             console.error(`Failed to refresh instance ${instance.id}:`, error);
@@ -584,14 +592,66 @@ async function pollOnce(): Promise<void> {
         if (!pollingActive) break; // Check if stopped
         if (!instance.enabled || instance.isBlocked) continue;
         
-        // Update backlog for this instance on every poll
+        // ========== INACTIVITY TIMEOUT CHECK ==========
+        // If no prompt sent in X minutes, stop project and notify Discord
+        const inactivityMs = currentSettings.inactivityTimeoutMinutes * 60 * 1000;
+        const lastPrompt = instance.lastPromptSent || 0;
+        const timeSinceLastPrompt = Date.now() - lastPrompt;
+        
+        if (lastPrompt > 0 && timeSinceLastPrompt > inactivityMs) {
+            const minutesInactive = Math.round(timeSinceLastPrompt / 60000);
+            console.log(`[${instance.projectName}] ⏰ Inactivity timeout: ${minutesInactive} minutes since last prompt`);
+            
+            // Disable the instance
+            instances.update(list =>
+                list.map(i => i.id === instance.id
+                    ? { 
+                        ...i, 
+                        enabled: false, 
+                        status: 'error' as const,
+                        isBlocked: true,
+                        blockReason: `Inactivity timeout: ${minutesInactive} min`
+                    }
+                    : i
+                )
+            );
+            
+            // Send Discord notification
+            if (currentSettings.discordWebhook && currentSettings.notifyOnError) {
+                try {
+                    await invoke('notify_discord', {
+                        webhookUrl: currentSettings.discordWebhook,
+                        title: `⏰ ${instance.projectName} Detenido por Inactividad`,
+                        message: `No se ha enviado ningún prompt en ${minutesInactive} minutos. El proyecto ha sido deshabilitado automáticamente.`
+                    });
+                    console.log(`[${instance.projectName}] Discord notification sent for inactivity`);
+                } catch (e) {
+                    console.error(`[${instance.projectName}] Failed to send inactivity notification:`, e);
+                }
+            }
+            
+            continue; // Skip further processing for this instance
+        }
+        
+        // Update backlog for this instance on every poll (with timeout)
         try {
-            const backlog = await invoke<{
+            const backlogTimeout = new Promise<null>((_, reject) =>
+                setTimeout(() => reject(new Error('Backlog timeout')), 20000)
+            );
+            
+            const backlogPromise = invoke<{
                 totalIssues: number;
                 completedIssues: number;
                 currentIssue: string;
                 error?: string;
             }>('read_backlog', { projectPath: instance.projectPath });
+            
+            const backlog = await Promise.race([backlogPromise, backlogTimeout]) as {
+                totalIssues: number;
+                completedIssues: number;
+                currentIssue: string;
+                error?: string;
+            } | null;
             
             if (backlog && !backlog.error) {
                 instances.update(list =>
@@ -605,15 +665,51 @@ async function pollOnce(): Promise<void> {
                         : i
                     )
                 );
+                
+                // ========== CHECK FOR PROJECT COMPLETION ==========
+                // If all issues are completed, disable and notify
+                if (backlog.totalIssues > 0 && backlog.completedIssues >= backlog.totalIssues) {
+                    console.log(`[${instance.projectName}] 🎉 All issues completed (${backlog.completedIssues}/${backlog.totalIssues})`);
+                    
+                    // Update instance to disabled and completed
+                    instances.update(list =>
+                        list.map(i => i.id === instance.id
+                            ? { 
+                                ...i, 
+                                enabled: false, 
+                                status: 'complete' as const,
+                                isBlocked: true,
+                                blockReason: 'All issues completed'
+                            }
+                            : i
+                        )
+                    );
+                    
+                    // Send Discord notification
+                    if (currentSettings.discordWebhook && currentSettings.notifyOnComplete) {
+                        try {
+                            await invoke('notify_discord', {
+                                webhookUrl: currentSettings.discordWebhook,
+                                title: `🎉 ${instance.projectName} Completado!`,
+                                message: `Todos los issues han sido completados (${backlog.completedIssues}/${backlog.totalIssues}). El proyecto ha sido deshabilitado automáticamente.`
+                            });
+                            console.log(`[${instance.projectName}] Discord notification sent for completion`);
+                        } catch (e) {
+                            console.error(`[${instance.projectName}] Failed to send completion notification:`, e);
+                        }
+                    }
+                    
+                    continue; // Skip further processing for this instance
+                }
             }
         } catch (e) {
             // Ignore backlog read errors, continue with detection
         }
         
         try {
-            // Add timeout protection - max 30 seconds per instance (script does multiple scans)
+            // Add timeout protection - max 45 seconds per instance
             const timeoutPromise = new Promise<null>((_, reject) => 
-                setTimeout(() => reject(new Error('Timeout')), 30000)
+                setTimeout(() => reject(new Error('Timeout')), 45000)
             );
             
             const detectPromise = detectUIState(instance.windowHandle);
@@ -690,6 +786,7 @@ async function pollOnce(): Promise<void> {
                             ? { 
                                 ...i, 
                                 lastActivity: Date.now(), 
+                                lastPromptSent: Date.now(),  // Track when prompt was sent
                                 stepCount: i.stepCount + 1,
                                 retryCount: 0,
                                 status: 'working' as const

@@ -289,16 +289,19 @@ try {
         $hdc3 = [FastDetector]::GetDC([IntPtr]::Zero)
         
         # Chat button is in the extreme bottom-right corner - sample multiple points
-        # The button is small, so check a grid of points
+        # Use ABSOLUTE offsets from edges instead of percentages for consistency across window sizes
+        # The send button is typically 20-60 pixels from right edge and 30-70 pixels from bottom
         $foundGray = $false
         $foundRed = $false
+        $foundBlue = $false  # Blue/cyan send button
         
-        foreach ($xPct in @(96, 97, 98, 99)) {
-            foreach ($yPct in @(92, 93, 94, 95, 96)) {
-                if ($foundGray -or $foundRed) { break }
+        # Search area: right edge -5px to -50px, bottom edge -20px to -100px
+        foreach ($xOffset in @(10, 15, 20, 25, 30, 40, 50)) {
+            foreach ($yOffset in @(25, 30, 35, 40, 50, 60, 70, 80)) {
+                if ($foundGray -or $foundRed -or $foundBlue) { break }
                 
-                $screenX = $rect.Left + [int]($width * ($xPct / 100))
-                $screenY = $rect.Top + [int]($height * ($yPct / 100))
+                $screenX = $rect.Right - $xOffset
+                $screenY = $rect.Bottom - $yOffset
                 
                 $pixel = [FastDetector]::GetPixel($hdc3, $screenX, $screenY)
                 $r = $pixel -band 0xFF
@@ -309,8 +312,12 @@ try {
                 $isGray = ($r -ge 100 -and $r -le 180 -and $g -ge 100 -and $g -le 180 -and $b -ge 100 -and $b -le 180)
                 $isSimilar = ([Math]::Abs($r - $g) -lt 20 -and [Math]::Abs($g - $b) -lt 20)
                 
-                # Check if RED (high R, low G and B)
+                # Check if RED (high R, low G and B) - agent is working
                 $isRed = ($r -ge 150 -and $g -lt 100 -and $b -lt 100)
+                
+                # Check if BLUE/CYAN (high B, medium-high G, low R) - ready to send
+                # This catches blue send arrows
+                $isBlue = ($r -lt 100 -and $g -ge 100 -and $b -ge 150)
                 
                 if ($isGray -and $isSimilar) {
                     $foundGray = $true
@@ -318,56 +325,23 @@ try {
                 if ($isRed) {
                     $foundRed = $true
                 }
+                if ($isBlue) {
+                    $foundBlue = $true
+                }
             }
         }
         
-        if ($foundGray) {
-            $result.chatButtonColor = "gray"
-            
-            # ========== GRAY BUTTON: Chat is ready ==========
-            # First, search for Retry button in the dialog area (near bottom, like Accept all)
-            # Retry popup appears in the lower portion of the chat, search bottom-up
-            $retryStartY = [int]($height * 0.50)    # Start from middle
-            $retryEndY = [int]($height * 0.95)      # To near bottom
-            $retryStartX = [int]($width * 0.50)
-            $retryEndX = [int]($width * 0.98)
-            
-            # Search from BOTTOM to TOP (more likely to find Retry at bottom first)
-            for ($y = $retryEndY; $y -gt $retryStartY -and -not $result.hasRetryButton; $y -= 15) {
-                for ($x = $retryStartX; $x -lt $retryEndX; $x += 20) {
-                    $px = $rect.Left + $x
-                    $py = $rect.Top + $y
-                    
-                    $pxl = [FastDetector]::GetPixel($hdc3, $px, $py)
-                    $pr = $pxl -band 0xFF
-                    $pg = ($pxl -shr 8) -band 0xFF
-                    $pb = ($pxl -shr 16) -band 0xFF
-                    
-                    # Blue Retry button (Antigravity uses blue buttons like Accept)
-                    # Blue button: low R, medium-high G, high B
-                    $isBlueRetry = ($pr -lt 100 -and $pg -ge 100 -and $pg -le 200 -and $pb -ge 180)
-                    
-                    if ($isBlueRetry) {
-                        $result.hasRetryButton = $true
-                        $result.retryButtonX = $px
-                        $result.retryButtonY = $py
-                        break
-                    }
-                }
-            }
-            
-            # If no Retry found, chat is ready for input
-            if (-not $result.hasRetryButton) {
-                $result.hasEnterButton = $true
-                $result.enterButtonX = $screenX
-                $result.enterButtonY = $screenY
-            }
-        }
-        elseif ($foundRed) {
+        # DETECTION STRATEGY:
+        # - If RED button found -> Agent is working
+        # - If NO RED found -> Chat is ready for input (works for light and dark themes)
+        # We prioritize detecting red because it's the clearest indicator of "busy"
+        
+        if ($foundRed) {
+            # ========== RED BUTTON: Agent is working ==========
             $result.chatButtonColor = "red"
-            $result.isPaused = $true  # Agent is working
+            $result.isPaused = $true
             
-            # ========== RED BUTTON: Agent working, search for Accept dialog ==========
+            # Search for Accept dialog while agent is working
             $dialogStartY = [int]($height * 0.30)
             $dialogEndY = [int]($height * 0.78)
             $dialogStartX = [int]($width * 0.50)
@@ -400,9 +374,57 @@ try {
             }
         }
         else {
-            # Neither gray nor red - unknown state
-            $result.chatButtonColor = "none"
-            $result.isPaused = $true
+            # ========== NO RED: Chat is ready for input ==========
+            $result.chatButtonColor = "gray"  # Use "gray" to indicate ready
+            
+            # Search for Retry button in the dialog area
+            $retryStartY = [int]($height * 0.50)
+            $retryEndY = [int]($height * 0.95)
+            $retryStartX = [int]($width * 0.50)
+            $retryEndX = [int]($width * 0.98)
+            
+            for ($y = $retryEndY; $y -gt $retryStartY -and -not $result.hasRetryButton; $y -= 15) {
+                for ($x = $retryStartX; $x -lt $retryEndX; $x += 20) {
+                    $px = $rect.Left + $x
+                    $py = $rect.Top + $y
+                    
+                    $pxl = [FastDetector]::GetPixel($hdc3, $px, $py)
+                    $pr = $pxl -band 0xFF
+                    $pg = ($pxl -shr 8) -band 0xFF
+                    $pb = ($pxl -shr 16) -band 0xFF
+                    
+                    # Blue Retry button
+                    $isBlueRetry = ($pr -lt 100 -and $pg -ge 100 -and $pg -le 200 -and $pb -ge 180)
+                    
+                    if ($isBlueRetry) {
+                        # Cluster check for real button
+                        $blueCount = 1
+                        for ($checkX = 1; $checkX -le 40; $checkX += 10) {
+                            $checkPxl = [FastDetector]::GetPixel($hdc3, $px + $checkX, $py)
+                            $checkR = $checkPxl -band 0xFF
+                            $checkG = ($checkPxl -shr 8) -band 0xFF
+                            $checkB = ($checkPxl -shr 16) -band 0xFF
+                            if ($checkR -lt 100 -and $checkG -ge 100 -and $checkG -le 200 -and $checkB -ge 180) {
+                                $blueCount++
+                            }
+                        }
+                        
+                        if ($blueCount -ge 3) {
+                            $result.hasRetryButton = $true
+                            $result.retryButtonX = $px + 20
+                            $result.retryButtonY = $py
+                            break
+                        }
+                    }
+                }
+            }
+            
+            # If no Retry found, chat is ready for input
+            if (-not $result.hasRetryButton) {
+                $result.hasEnterButton = $true
+                $result.enterButtonX = $rect.Right - 30
+                $result.enterButtonY = $rect.Bottom - 40
+            }
         }
         
         [FastDetector]::ReleaseDC([IntPtr]::Zero, $hdc3) | Out-Null
