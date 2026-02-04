@@ -131,6 +131,27 @@
           <span>Minimize to system tray</span>
         </label>
       </div>
+
+      <div class="section-header">📝 Logging</div>
+
+      <div class="toggles">
+        <label class="checkbox">
+          <input type="checkbox" bind:checked={localSettings.loggingEnabled} />
+          <span>Enable file logging</span>
+        </label>
+      </div>
+
+      <div class="field">
+        <label for="logPath">Log File Path (leave empty for default)</label>
+        <input
+          type="text"
+          id="logPath"
+          bind:value={localSettings.logFilePath}
+          placeholder="C:\logs\antigravity.log"
+          disabled={!localSettings.loggingEnabled}
+        />
+        <span class="hint">Default: antigravity.log in app directory</span>
+      </div>
     </div>
 
     <footer>

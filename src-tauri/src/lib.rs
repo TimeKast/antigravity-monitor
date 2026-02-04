@@ -512,6 +512,48 @@ async fn notify_discord(webhook_url: String, title: String, message: String) -> 
     Ok(())
 }
 
+/// Write a log entry to file
+#[tauri::command]
+fn write_log(log_path: String, level: String, message: String) -> Result<(), String> {
+    use std::fs::{create_dir_all, OpenOptions};
+    use std::io::Write;
+
+    // Use provided path or default to exe directory
+    let path = if log_path.is_empty() {
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.join("antigravity.log")))
+            .unwrap_or_else(|| PathBuf::from("antigravity.log"))
+    } else {
+        PathBuf::from(&log_path)
+    };
+
+    // Create parent directory if it doesn't exist
+    if let Some(parent) = path.parent() {
+        if !parent.exists() {
+            create_dir_all(parent).map_err(|e| format!("Failed to create log directory: {}", e))?;
+        }
+    }
+
+    // Get current timestamp
+    let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+
+    // Format log entry
+    let log_entry = format!("[{}] [{}] {}\n", timestamp, level.to_uppercase(), message);
+
+    // Append to file
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|e| format!("Failed to open log file: {}", e))?;
+
+    file.write_all(log_entry.as_bytes())
+        .map_err(|e| format!("Failed to write to log file: {}", e))?;
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -526,7 +568,8 @@ pub fn run() {
             accept_dialog,
             scroll_to_bottom,
             read_backlog,
-            write_to_chat
+            write_to_chat,
+            write_log
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

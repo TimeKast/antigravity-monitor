@@ -24,7 +24,10 @@ const defaultSettings: Settings = {
         'ESCALAR',
         '✅ BACKLOG COMPLETADO'
     ],
-    inactivityTimeoutMinutes: 20  // Stop project if no prompt sent in 20 minutes
+    inactivityTimeoutMinutes: 20,  // Stop project if no prompt sent in 20 minutes
+    // Logging settings
+    loggingEnabled: true,
+    logFilePath: ''  // Empty = use default location (app data dir)
 };
 
 // Load settings from localStorage
@@ -56,6 +59,28 @@ function createSettingsStore() {
 
 export const settings = createSettingsStore();
 
+// Logging utility - writes to file via Tauri backend
+export const log = {
+    async write(level: string, message: string): Promise<void> {
+        const currentSettings = get(settings);
+        if (!currentSettings.loggingEnabled) return;
+        
+        try {
+            await invoke('write_log', {
+                logPath: currentSettings.logFilePath,
+                level,
+                message
+            });
+        } catch (e) {
+            console.error('[log] Failed to write log:', e);
+        }
+    },
+    info: (msg: string) => log.write('INFO', msg),
+    warn: (msg: string) => log.write('WARN', msg),
+    error: (msg: string) => log.write('ERROR', msg),
+    debug: (msg: string) => log.write('DEBUG', msg)
+};
+
 // Instances store
 export const instances = writable<Instance[]>([]);
 
@@ -64,6 +89,7 @@ export async function scanForInstances(): Promise<void> {
     try {
         // Call Tauri backend to scan for windows
         const results = await invoke<ScanResult[]>('scan_windows');
+        await log.info(`Scan completed: found ${results.length} Antigravity instances`);
 
         const currentInstances = get(instances);
 

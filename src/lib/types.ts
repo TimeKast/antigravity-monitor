@@ -38,6 +38,9 @@ export interface Settings {
     pollIntervalSeconds: number;
     stopConditions: string[];
     inactivityTimeoutMinutes: number;  // Minutes before stopping inactive project (default 20)
+    // Logging settings
+    loggingEnabled: boolean;
+    logFilePath: string;  // Path to log file (e.g., "C:/logs/antigravity.log")
 }
 
 export interface ScanResult {
