@@ -36,17 +36,17 @@ on run argv
             
             delay 0.1
             
-            return "{\"success\": true, \"prompt\": \"" & (text 1 thru (min of {50, length of thePrompt}) of thePrompt) & "\"}"
+            -- Truncate prompt for response
+            set promptLen to length of thePrompt
+            if promptLen > 50 then
+                set truncatedPrompt to text 1 thru 50 of thePrompt
+            else
+                set truncatedPrompt to thePrompt
+            end if
+            
+            return "{\"success\": true, \"prompt\": \"" & truncatedPrompt & "\"}"
         end tell
     on error errMsg
         return "{\"success\": false, \"error\": \"" & errMsg & "\"}"
     end try
 end run
-
-on min(a, b)
-    if a < b then
-        return a
-    else
-        return b
-    end if
-end min

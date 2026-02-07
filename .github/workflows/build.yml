@@ -2,7 +2,7 @@ name: Build Installers
 
 on:
   push:
-    branches: [master, main]
+    branches: [master, main, feature/mac-support]
     tags:
       - "v*"
   workflow_dispatch:
