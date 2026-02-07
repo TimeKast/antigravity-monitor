@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    antigravity_monitor_lib::run()
+    bob_lib::run()
 }
