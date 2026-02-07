@@ -33,7 +33,7 @@ const defaultSettings: Settings = {
 // Load settings from localStorage
 function loadSettings(): Settings {
     if (typeof window !== 'undefined' && window.localStorage) {
-        const saved = localStorage.getItem('antigravity-settings');
+        const saved = localStorage.getItem('bob-settings');
         if (saved) {
             return { ...defaultSettings, ...JSON.parse(saved) };
         }
@@ -49,7 +49,7 @@ function createSettingsStore() {
         subscribe,
         set: (value: Settings) => {
             if (typeof window !== 'undefined' && window.localStorage) {
-                localStorage.setItem('antigravity-settings', JSON.stringify(value));
+                localStorage.setItem('bob-settings', JSON.stringify(value));
             }
             set(value);
         },

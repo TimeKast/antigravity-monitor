@@ -296,8 +296,9 @@ try {
         $foundBlue = $false  # Blue/cyan send button
         
         # Search area: right edge -5px to -50px, bottom edge -20px to -100px
-        foreach ($xOffset in @(10, 15, 20, 25, 30, 40, 50)) {
-            foreach ($yOffset in @(25, 30, 35, 40, 50, 60, 70, 80)) {
+        # Expanded range for different resolutions and DPI scaling (100%-200%)
+        foreach ($xOffset in @(10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100)) {
+            foreach ($yOffset in @(25, 30, 35, 40, 50, 60, 70, 80, 90, 100, 110, 120)) {
                 if ($foundGray -or $foundRed -or $foundBlue) { break }
                 
                 $screenX = $rect.Right - $xOffset

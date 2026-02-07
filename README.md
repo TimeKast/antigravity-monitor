@@ -1,4 +1,4 @@
-# Antigravity Monitor - README
+# BOB - Monitor de Antigravity
 
 🦞 Monitor y automatización de múltiples instancias de Antigravity.
 

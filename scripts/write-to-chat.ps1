@@ -78,8 +78,9 @@ try {
     $height = $rect.Bottom - $rect.Top
     
     # Click on chat input - bottom right area
+    # Use multiple attempts with different offsets for different DPI scaling
     $chatX = $rect.Left + [int]($width * 0.75)
-    $chatY = $rect.Bottom - 80
+    $chatY = $rect.Bottom - [int]([Math]::Max(80, $height * 0.08))
     
     [ChatWriter]::SetCursorPos($chatX, $chatY)
     Start-Sleep -Milliseconds 50

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Antigravity Monitor",
+  "productName": "BOB",
   "version": "0.1.0",
-  "identifier": "com.flevik.antigravity-monitor",
+  "identifier": "com.flevik.bob",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Antigravity Monitor",
+        "title": "BOB",
         "width": 420,
         "height": 600,
         "resizable": true,
@@ -24,7 +24,7 @@
       "id": "main",
       "iconPath": "icons/icon.png",
       "iconAsTemplate": false,
-      "tooltip": "Antigravity Monitor"
+      "tooltip": "BOB"
     },
     "security": {
       "csp": null
