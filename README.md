@@ -24,7 +24,7 @@
 # Visita: https://www.rust-lang.org/tools/install
 
 # 2. Instalar dependencias
-cd antigravity-monitor
+cd bob
 npm install
 
 # 3. Ejecutar en modo desarrollo
@@ -37,7 +37,7 @@ npm run tauri build
 ## Arquitectura
 
 ```
-antigravity-monitor/
+bob/
 ├── src/                    # Frontend (Svelte)
 │   ├── routes/
 │   │   └── +page.svelte    # Dashboard principal

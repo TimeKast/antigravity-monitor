@@ -57,7 +57,7 @@
   <header>
     <div class="logo">
       <span class="icon">🦞</span>
-      <h1>Antigravity Monitor</h1>
+      <h1>BOB Monitor</h1>
     </div>
     <div class="actions">
       <button class="btn-poll" class:active={polling} onclick={togglePolling}>

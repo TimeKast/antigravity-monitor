@@ -53,7 +53,7 @@ function Get-VSCodeWindows {
                 $isAntigravity = $title -match " - Antigravity"
                 
                 # Exclusions (case insensitive)
-                $isMonitor = $title -match "Antigravity Monitor|antigravity-monitor"
+                $isMonitor = $title -match "BOB Monitor|Antigravity Monitor|antigravity-monitor"
                 $isPlugin = $title -match "@tauri-apps|plugin-"
                 $isShortcut = $title -match "shortcut for"
                 $isSearch = $title -match "^Buscar con Google|^Search with Google"
