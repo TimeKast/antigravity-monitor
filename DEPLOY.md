@@ -1,6 +1,6 @@
-# 🚀 Antigravity Monitor - Deployment Guide
+# 🚀 BOB - Deployment Guide
 
-Complete guide to install and run Antigravity Monitor on a new machine.
+Complete guide to install and run BOB on a new machine.
 
 ## 📋 Prerequisites
 
@@ -65,8 +65,8 @@ $PSVersionTable.PSVersion
 
 ### Step 1: Clone the Repository
 ```powershell
-git clone https://github.com/TimeKast/antigravity-monitor.git
-cd antigravity-monitor
+git clone https://github.com/TimeKast/bob.git
+cd bob
 ```
 
 ### Step 2: Install Dependencies
@@ -92,13 +92,13 @@ npm run tauri build
 
 The installer will be created at:
 ```
-src-tauri/target/release/bundle/msi/antigravity-monitor_x.x.x_x64_en-US.msi
+src-tauri/target/release/bundle/msi/bob_x.x.x_x64_en-US.msi
 ```
 
 ### Install the App
 Run the MSI installer or copy the executable from:
 ```
-src-tauri/target/release/antigravity-monitor.exe
+src-tauri/target/release/bob.exe
 ```
 
 ---
@@ -135,7 +135,7 @@ Issue files should contain `Status: ✅ Done` or `Status: Done` when completed.
 ### Basic Workflow
 
 1. Open VS Code windows with Antigravity extension active
-2. Run Antigravity Monitor
+2. Run BOB
 3. Click "🔍 Scan" to detect instances
 4. Toggle ON the instances you want to automate
 5. Click "▶️ Start" to begin auto-monitoring
@@ -184,7 +184,7 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ## 📁 File Structure
 
 ```
-antigravity-monitor/
+bob/
 ├── src/                        # Frontend (Svelte + TypeScript)
 │   ├── routes/+page.svelte     # Main dashboard
 │   └── lib/
@@ -208,7 +208,7 @@ antigravity-monitor/
 
 ## 🔗 Links
 
-- **Repository**: https://github.com/TimeKast/antigravity-monitor
+- **Repository**: https://github.com/TimeKast/bob
 - **Tauri Documentation**: https://tauri.app/
 - **Rust Installation**: https://www.rust-lang.org/tools/install
 

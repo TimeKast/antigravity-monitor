@@ -147,10 +147,10 @@
           type="text"
           id="logPath"
           bind:value={localSettings.logFilePath}
-          placeholder="C:\logs\antigravity.log"
+          placeholder="C:\logs\bob.log"
           disabled={!localSettings.loggingEnabled}
         />
-        <span class="hint">Default: antigravity.log in app directory</span>
+        <span class="hint">Default: bob.log in app directory</span>
       </div>
     </div>
 

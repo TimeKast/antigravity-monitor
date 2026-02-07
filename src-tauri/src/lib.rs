@@ -1,4 +1,4 @@
-// Antigravity Monitor - Tauri Backend
+// BOB - Tauri Backend
 // Commands for window scanning, monitoring, and system integration
 
 use serde::{Deserialize, Serialize};
@@ -496,7 +496,7 @@ async fn notify_discord(webhook_url: String, title: String, message: String) -> 
             "description": message,
             "color": 5814783, // Cyan color
             "footer": {
-                "text": "Antigravity Monitor"
+                "text": "BOB Monitor"
             },
             "timestamp": chrono::Utc::now().to_rfc3339()
         }]
@@ -522,8 +522,8 @@ fn write_log(log_path: String, level: String, message: String) -> Result<(), Str
     let path = if log_path.is_empty() {
         std::env::current_exe()
             .ok()
-            .and_then(|p| p.parent().map(|d| d.join("antigravity.log")))
-            .unwrap_or_else(|| PathBuf::from("antigravity.log"))
+            .and_then(|p| p.parent().map(|d| d.join("bob.log")))
+            .unwrap_or_else(|| PathBuf::from("bob.log"))
     } else {
         PathBuf::from(&log_path)
     };
