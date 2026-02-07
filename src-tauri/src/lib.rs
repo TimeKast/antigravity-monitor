@@ -30,14 +30,33 @@ pub struct InstanceStatus {
     pub step_count: u32,
 }
 
+/// Get script extension based on OS
+fn get_script_extension() -> &'static str {
+    if cfg!(target_os = "macos") {
+        ".scpt"
+    } else {
+        ".ps1"
+    }
+}
+
+/// Get the appropriate script name for the current OS
+fn get_os_script_name(base_name: &str) -> String {
+    // Remove any existing extension and add OS-appropriate one
+    let base = base_name.trim_end_matches(".ps1").trim_end_matches(".scpt");
+    format!("{}{}", base, get_script_extension())
+}
+
 /// Helper function to find script path in multiple locations
 fn get_script_path(script_name: &str) -> PathBuf {
+    // Convert script name to OS-appropriate version
+    let os_script_name = get_os_script_name(script_name);
+
     if cfg!(debug_assertions) {
         // Development: use CARGO_MANIFEST_DIR (src-tauri) parent + scripts
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
-            .map(|p| p.join("scripts").join(script_name))
-            .unwrap_or_else(|| PathBuf::from(format!("scripts/{}", script_name)))
+            .map(|p| p.join("scripts").join(&os_script_name))
+            .unwrap_or_else(|| PathBuf::from(format!("scripts/{}", os_script_name)))
     } else {
         // Production: check exe directory for scripts
         let exe_dir = std::env::current_exe()
@@ -46,19 +65,28 @@ fn get_script_path(script_name: &str) -> PathBuf {
 
         if let Some(ref dir) = exe_dir {
             // Try _up_/scripts/ (Tauri NSIS installer location)
-            let up_scripts = dir.join("_up_").join("scripts").join(script_name);
+            let up_scripts = dir.join("_up_").join("scripts").join(&os_script_name);
             if up_scripts.exists() {
                 return up_scripts;
             }
 
+            // macOS: Try Resources folder (inside .app bundle)
+            #[cfg(target_os = "macos")]
+            {
+                let resources = dir.join("../Resources/scripts").join(&os_script_name);
+                if resources.exists() {
+                    return resources;
+                }
+            }
+
             // Try direct script file in exe dir
-            let direct = dir.join(script_name);
+            let direct = dir.join(&os_script_name);
             if direct.exists() {
                 return direct;
             }
 
             // Try scripts subfolder
-            let scripts = dir.join("scripts").join(script_name);
+            let scripts = dir.join("scripts").join(&os_script_name);
             if scripts.exists() {
                 return scripts;
             }
@@ -66,30 +94,50 @@ fn get_script_path(script_name: &str) -> PathBuf {
 
         // Fallback to _up_/scripts (most likely for NSIS)
         exe_dir
-            .map(|d| d.join("_up_").join("scripts").join(script_name))
-            .unwrap_or_else(|| PathBuf::from(script_name))
+            .map(|d| d.join("_up_").join("scripts").join(&os_script_name))
+            .unwrap_or_else(|| PathBuf::from(&os_script_name))
     }
 }
 
-/// Scan for VS Code / Antigravity windows using PowerShell
+/// Execute a script with the appropriate runner for the OS
+fn run_script(script_path: &PathBuf, args: Vec<&str>) -> Result<std::process::Output, String> {
+    if cfg!(target_os = "macos") {
+        // macOS: use osascript
+        let mut cmd_args = vec![script_path.to_str().unwrap_or("")];
+        cmd_args.extend(args);
+
+        Command::new("osascript")
+            .args(&cmd_args)
+            .output()
+            .map_err(|e| format!("Failed to execute osascript: {}", e))
+    } else {
+        // Windows: use PowerShell
+        let mut cmd_args = vec![
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            script_path.to_str().unwrap_or(""),
+        ];
+        cmd_args.extend(args);
+
+        Command::new("powershell")
+            .args(&cmd_args)
+            .output()
+            .map_err(|e| format!("Failed to execute PowerShell: {}", e))
+    }
+}
+
+/// Scan for VS Code / Antigravity windows
 #[tauri::command]
 fn scan_windows() -> Result<Vec<ScanResult>, String> {
     let script_path = get_script_path("detect-windows.ps1");
 
-    let output = Command::new("powershell")
-        .args([
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            script_path.to_str().unwrap_or("scripts/detect-windows.ps1"),
-        ])
-        .output()
-        .map_err(|e| format!("Failed to execute PowerShell: {}", e))?;
+    let output = run_script(&script_path, vec![])?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!(
-            "PowerShell script failed: {} (path: {:?})",
+            "Script failed: {} (path: {:?})",
             stderr, script_path
         ));
     }
@@ -191,28 +239,17 @@ pub struct UIStateResult {
     pub error: Option<String>,
 }
 
-/// Detect UI state (buttons) for a window using PowerShell
+/// Detect UI state (buttons) for a window
 #[tauri::command]
 fn detect_ui_state(window_handle: i64) -> Result<UIStateResult, String> {
     let script_path = get_script_path("detect-ui-state.ps1");
+    let handle_str = window_handle.to_string();
 
     println!("[detect_ui_state] Script path: {:?}", script_path);
     println!("[detect_ui_state] Script exists: {}", script_path.exists());
     println!("[detect_ui_state] Window handle: {}", window_handle);
 
-    let output = Command::new("powershell")
-        .args([
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            script_path
-                .to_str()
-                .unwrap_or("scripts/detect-ui-state.ps1"),
-            "-WindowHandle",
-            &window_handle.to_string(),
-        ])
-        .output()
-        .map_err(|e| format!("Failed to execute PowerShell: {}", e))?;
+    let output = run_script(&script_path, vec![&handle_str])?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -251,85 +288,32 @@ fn detect_ui_state(window_handle: i64) -> Result<UIStateResult, String> {
 
 /// Click a button at screen coordinates
 #[tauri::command]
-fn click_button(window_handle: i64, screen_x: i32, screen_y: i32) -> Result<bool, String> {
-    let script_path = if cfg!(debug_assertions) {
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .map(|p| p.join("scripts").join("click-button.ps1"))
-            .unwrap_or_else(|| std::path::PathBuf::from("scripts/click-button.ps1"))
-    } else {
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| {
-                p.parent()
-                    .map(|p| p.join("scripts").join("click-button.ps1"))
-            })
-            .unwrap_or_else(|| std::path::PathBuf::from("scripts/click-button.ps1"))
-    };
+fn click_button(_window_handle: i64, screen_x: i32, screen_y: i32) -> Result<bool, String> {
+    let script_path = get_script_path("click-button.ps1");
+    let x_str = screen_x.to_string();
+    let y_str = screen_y.to_string();
 
     println!("[click_button] Script path: {:?}", script_path);
-    println!("[click_button] Script exists: {}", script_path.exists());
-    let output = Command::new("powershell")
-        .args([
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            script_path.to_str().unwrap_or("scripts/click-button.ps1"),
-            "-WindowHandle",
-            &window_handle.to_string(),
-            "-ScreenX",
-            &screen_x.to_string(),
-            "-ScreenY",
-            &screen_y.to_string(),
-        ])
-        .output()
-        .map_err(|e| format!("Failed to execute PowerShell: {}", e))?;
+    println!("[click_button] Clicking at ({}, {})", screen_x, screen_y);
+
+    let output = run_script(&script_path, vec![&x_str, &y_str])?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    println!("[click_button] Clicked at ({}, {})", screen_x, screen_y);
     println!("[click_button] stdout: {}", stdout);
-    if !stderr.is_empty() {
-        println!("[click_button] stderr: {}", stderr);
-    }
 
-    // Check if success in output
     Ok(stdout.contains("\"success\":true") || stdout.contains("success\": true"))
 }
 
-/// Accept dialog using Alt+Enter keyboard shortcut
+/// Accept dialog using keyboard shortcut (Alt+Enter on Windows, Cmd+Enter on Mac)
 #[tauri::command]
 fn accept_dialog(window_handle: i64) -> Result<bool, String> {
-    let script_path = if cfg!(debug_assertions) {
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .map(|p| p.join("scripts").join("accept-dialog.ps1"))
-            .unwrap_or_else(|| std::path::PathBuf::from("scripts/accept-dialog.ps1"))
-    } else {
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| {
-                p.parent()
-                    .map(|p| p.join("scripts").join("accept-dialog.ps1"))
-            })
-            .unwrap_or_else(|| std::path::PathBuf::from("scripts/accept-dialog.ps1"))
-    };
+    let script_path = get_script_path("accept-dialog.ps1");
+    let handle_str = window_handle.to_string();
 
     println!("[accept_dialog] Script path: {:?}", script_path);
     println!("[accept_dialog] Window handle: {}", window_handle);
 
-    let output = Command::new("powershell")
-        .args([
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            script_path.to_str().unwrap_or("scripts/accept-dialog.ps1"),
-            "-WindowHandle",
-            &window_handle.to_string(),
-        ])
-        .output()
-        .map_err(|e| format!("Failed to execute PowerShell: {}", e))?;
+    let output = run_script(&script_path, vec![&handle_str])?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     println!("[accept_dialog] stdout: {}", stdout);
@@ -337,37 +321,13 @@ fn accept_dialog(window_handle: i64) -> Result<bool, String> {
     Ok(stdout.contains("\"success\":true") || stdout.contains("success\": true"))
 }
 
-/// Scroll chat to bottom using Ctrl+End
+/// Scroll chat to bottom using keyboard shortcut (Ctrl+End on Windows, Cmd+End on Mac)
 #[tauri::command]
 fn scroll_to_bottom(window_handle: i64) -> Result<bool, String> {
-    let script_path = if cfg!(debug_assertions) {
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .map(|p| p.join("scripts").join("scroll-to-bottom.ps1"))
-            .unwrap_or_else(|| std::path::PathBuf::from("scripts/scroll-to-bottom.ps1"))
-    } else {
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| {
-                p.parent()
-                    .map(|p| p.join("scripts").join("scroll-to-bottom.ps1"))
-            })
-            .unwrap_or_else(|| std::path::PathBuf::from("scripts/scroll-to-bottom.ps1"))
-    };
+    let script_path = get_script_path("scroll-to-bottom.ps1");
+    let handle_str = window_handle.to_string();
 
-    let output = std::process::Command::new("powershell")
-        .args([
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            script_path
-                .to_str()
-                .unwrap_or("scripts/scroll-to-bottom.ps1"),
-            "-WindowHandle",
-            &window_handle.to_string(),
-        ])
-        .output()
-        .map_err(|e| format!("Failed to execute PowerShell: {}", e))?;
+    let output = run_script(&script_path, vec![&handle_str])?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     Ok(stdout.contains("\"success\":true") || stdout.contains("success\": true"))
@@ -390,32 +350,9 @@ pub struct BacklogResult {
 /// Read backlog from project path
 #[tauri::command]
 fn read_backlog(project_path: String) -> Result<BacklogResult, String> {
-    let script_path = if cfg!(debug_assertions) {
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .map(|p| p.join("scripts").join("read-backlog.ps1"))
-            .unwrap_or_else(|| std::path::PathBuf::from("scripts/read-backlog.ps1"))
-    } else {
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| {
-                p.parent()
-                    .map(|p| p.join("scripts").join("read-backlog.ps1"))
-            })
-            .unwrap_or_else(|| std::path::PathBuf::from("scripts/read-backlog.ps1"))
-    };
+    let script_path = get_script_path("read-backlog.ps1");
 
-    let output = std::process::Command::new("powershell")
-        .args([
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            script_path.to_str().unwrap_or("scripts/read-backlog.ps1"),
-            "-ProjectPath",
-            &project_path,
-        ])
-        .output()
-        .map_err(|e| format!("Failed to execute PowerShell: {}", e))?;
+    let output = run_script(&script_path, vec![&project_path])?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -436,20 +373,8 @@ fn read_backlog(project_path: String) -> Result<BacklogResult, String> {
 /// Write to chat and submit prompt
 #[tauri::command]
 fn write_to_chat(window_handle: i64, prompt: String) -> Result<bool, String> {
-    let script_path = if cfg!(debug_assertions) {
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .map(|p| p.join("scripts").join("write-to-chat.ps1"))
-            .unwrap_or_else(|| std::path::PathBuf::from("scripts/write-to-chat.ps1"))
-    } else {
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| {
-                p.parent()
-                    .map(|p| p.join("scripts").join("write-to-chat.ps1"))
-            })
-            .unwrap_or_else(|| std::path::PathBuf::from("scripts/write-to-chat.ps1"))
-    };
+    let script_path = get_script_path("write-to-chat.ps1");
+    let handle_str = window_handle.to_string();
 
     println!("[write_to_chat] Script path: {:?}", script_path);
     println!(
@@ -457,19 +382,7 @@ fn write_to_chat(window_handle: i64, prompt: String) -> Result<bool, String> {
         window_handle, prompt
     );
 
-    let output = Command::new("powershell")
-        .args([
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            script_path.to_str().unwrap_or("scripts/write-to-chat.ps1"),
-            "-WindowHandle",
-            &window_handle.to_string(),
-            "-Prompt",
-            &prompt,
-        ])
-        .output()
-        .map_err(|e| format!("Failed to execute PowerShell: {}", e))?;
+    let output = run_script(&script_path, vec![&prompt, &handle_str])?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
