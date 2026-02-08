@@ -92,23 +92,54 @@ Rust compila **solo** el módulo del OS actual. Un solo binario por plataforma.
 
 ---
 
+### Fase 5: Silent Mode 🔇 (XPLAT-012, XPLAT-013, XPLAT-014, XPLAT-015, XPLAT-016)
+**Objetivo**: BOB opera 100% en background, sin robar foco
+
+> ⚡ **Esta fase es independiente de las Fases 1-4.** Puede empezarse inmediatamente con el BOB actual en Windows.
+
+- Crear extensión companion "BOB Helper" para Antigravity/VS Code
+- Comunicación BOB ↔ Extension via WebSocket localhost
+- Lectura de estado via `when` contexts de Antigravity (sin screenshots)
+- Acciones via `vscode.commands.executeCommand()` (sin SetForegroundWindow)
+- Fallback automático a modo legacy si extensión no está instalada
+
+**Comandos Antigravity descubiertos:**
+- `antigravity.command.accept` — Aceptar cambios de archivo
+- `antigravity.agent.acceptAgentStep` — Aceptar paso del agente
+- `antigravity.terminalCommand.accept` — Aceptar comando terminal
+- `antigravity.prioritized.chat.open` — Abrir chat
+
+**Criterio de éxito**: BOB completa un ciclo completo (detect → accept → send prompt) sin que ninguna ventana cambie de foco.
+
+---
+
 ## Dependencias entre Issues
 
 ```mermaid
 graph LR
-    XPLAT001["XPLAT-001<br/>Platform Trait"] --> XPLAT002["XPLAT-002<br/>macOS Windows"]
-    XPLAT001 --> XPLAT003["XPLAT-003<br/>macOS Pixels"]
-    XPLAT001 --> XPLAT004["XPLAT-004<br/>macOS Mouse"]
-    XPLAT001 --> XPLAT005["XPLAT-005<br/>macOS Keyboard"]
-    XPLAT003 --> XPLAT006["XPLAT-006<br/>Write to Chat"]
-    XPLAT004 --> XPLAT006
-    XPLAT005 --> XPLAT006
-    XPLAT001 --> XPLAT007["XPLAT-007<br/>Windows→Rust"]
-    XPLAT006 --> XPLAT010["XPLAT-010<br/>Cleanup"]
-    XPLAT007 --> XPLAT010
-    XPLAT002 --> XPLAT009["XPLAT-009<br/>Permisos"]
-    XPLAT001 --> XPLAT008["XPLAT-008<br/>Config Paths"]
-    XPLAT010 --> XPLAT011["XPLAT-011<br/>Docs"]
+    subgraph "Fase 1-4: Cross-Platform"
+        XPLAT001["XPLAT-001<br/>Platform Trait"] --> XPLAT002["XPLAT-002<br/>macOS Windows"]
+        XPLAT001 --> XPLAT003["XPLAT-003<br/>macOS Pixels"]
+        XPLAT001 --> XPLAT004["XPLAT-004<br/>macOS Mouse"]
+        XPLAT001 --> XPLAT005["XPLAT-005<br/>macOS Keyboard"]
+        XPLAT003 --> XPLAT006["XPLAT-006<br/>Write to Chat"]
+        XPLAT004 --> XPLAT006
+        XPLAT005 --> XPLAT006
+        XPLAT001 --> XPLAT007["XPLAT-007<br/>Windows→Rust"]
+        XPLAT006 --> XPLAT010["XPLAT-010<br/>Cleanup"]
+        XPLAT007 --> XPLAT010
+        XPLAT002 --> XPLAT009["XPLAT-009<br/>Permisos"]
+        XPLAT001 --> XPLAT008["XPLAT-008<br/>Config Paths"]
+        XPLAT010 --> XPLAT011["XPLAT-011<br/>Docs"]
+    end
+
+    subgraph "Fase 5: Silent Mode 🔇"
+        XPLAT012["XPLAT-012<br/>Extension+WS"] --> XPLAT013["XPLAT-013<br/>State Reading"]
+        XPLAT012 --> XPLAT014["XPLAT-014<br/>Silent Actions"]
+        XPLAT013 --> XPLAT015["XPLAT-015<br/>Frontend"]
+        XPLAT014 --> XPLAT015
+        XPLAT015 --> XPLAT016["XPLAT-016<br/>Test+Docs"]
+    end
 ```
 
 ---
@@ -118,9 +149,12 @@ graph LR
 | Riesgo | Probabilidad | Impacto | Mitigación |
 |--------|:---:|:---:|------------|
 | Permisos macOS denegados por usuario | Media | Alto | Mostrar instrucciones claras en la UI |
-| Colores de Antigravity cambian con update | Media | Alto | Extraer colores a config |
-| Retina (2x) altera coordenadas de pixel | Alta | Medio | Usar logical coordinates |
-| CGWindowListCreateImage requiere Screen Recording | Seguro | Alto | Documentar en onboarding |
+| Colores de Antigravity cambian con update | Media | Alto | Extraer colores a config → **eliminado con Fase 5** |
+| Retina (2x) altera coordenadas de pixel | Alta | Medio | Usar logical coordinates → **eliminado con Fase 5** |
+| CGWindowListCreateImage requiere Screen Recording | Seguro | Alto | Documentar en onboarding → **eliminado con Fase 5** |
+| Antigravity actualiza y cambia comandos internos | Baja | Alto | Versionar extensión, notificar si comando falla |
+| `sendPrompt` no tiene comando directo | Media | Medio | Usar Chat Participant API o simular via extension |
+| WebSocket puerto ocupado | Baja | Bajo | Puerto configurable, auto-retry con puerto +1 |
 
 ---
 

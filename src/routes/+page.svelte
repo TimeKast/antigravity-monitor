@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
+  import { invoke } from "@tauri-apps/api/core";
   import InstanceCard from "$lib/InstanceCard.svelte";
   import Settings from "$lib/Settings.svelte";
   import {
@@ -17,7 +18,16 @@
   let scanning = $state(false);
   let polling = $state(false);
 
-  onMount(() => {
+  // Extension installation state
+  let extensionStatus = $state<
+    "checking" | "installed" | "missing" | "installing" | "error"
+  >("checking");
+  let extensionError = $state("");
+
+  onMount(async () => {
+    // Check if extension is installed
+    await checkExtension();
+
     handleScan();
     // Refresh instances every 10 seconds
     const interval = setInterval(refreshInstances, 10000);
@@ -26,6 +36,29 @@
       stopUIPolling();
     };
   });
+
+  async function checkExtension() {
+    try {
+      extensionStatus = "checking";
+      const installed = await invoke<boolean>("check_extension_installed");
+      extensionStatus = installed ? "installed" : "missing";
+    } catch (e) {
+      console.error("Failed to check extension:", e);
+      extensionStatus = "missing";
+    }
+  }
+
+  async function installExtension() {
+    try {
+      extensionStatus = "installing";
+      extensionError = "";
+      await invoke<boolean>("install_extension");
+      extensionStatus = "installed";
+    } catch (e) {
+      extensionStatus = "error";
+      extensionError = String(e);
+    }
+  }
 
   async function handleScan() {
     scanning = true;
@@ -77,6 +110,24 @@
 
   {#if polling}
     <div class="polling-indicator">🔄 Auto-polling active (every 5s)</div>
+  {/if}
+
+  {#if extensionStatus === "checking"}
+    <div class="extension-banner checking">🔍 Checking extension status...</div>
+  {:else if extensionStatus === "missing"}
+    <div class="extension-banner warning">
+      <span>⚠️ BOB Helper extension not installed</span>
+      <button class="btn-install" onclick={installExtension}
+        >Install Extension</button
+      >
+    </div>
+  {:else if extensionStatus === "installing"}
+    <div class="extension-banner installing">🔄 Installing extension...</div>
+  {:else if extensionStatus === "error"}
+    <div class="extension-banner error">
+      <span>❌ Installation failed: {extensionError}</span>
+      <button class="btn-install" onclick={installExtension}>Retry</button>
+    </div>
   {/if}
 
   {#if showSettings}
@@ -258,6 +309,45 @@
 
   .polling-status {
     margin-left: 1rem;
+    font-size: 0.8rem;
+  }
+
+  /* Extension installation banners */
+  .extension-banner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    margin-bottom: 0.5rem;
+    font-size: 0.85rem;
+  }
+
+  .extension-banner.checking {
+    background: rgba(100, 100, 100, 0.2);
+    border: 1px solid rgba(100, 100, 100, 0.3);
+  }
+
+  .extension-banner.warning {
+    background: rgba(255, 193, 7, 0.15);
+    border: 1px solid rgba(255, 193, 7, 0.4);
+  }
+
+  .extension-banner.installing {
+    background: rgba(0, 217, 255, 0.15);
+    border: 1px solid rgba(0, 217, 255, 0.3);
+  }
+
+  .extension-banner.error {
+    background: rgba(255, 82, 82, 0.15);
+    border: 1px solid rgba(255, 82, 82, 0.4);
+  }
+
+  .btn-install {
+    background: linear-gradient(90deg, #00d9ff, #00ff88);
+    color: #000;
+    font-weight: 600;
+    padding: 0.4rem 0.8rem;
     font-size: 0.8rem;
   }
 </style>

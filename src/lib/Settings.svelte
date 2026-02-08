@@ -152,6 +152,22 @@
         />
         <span class="hint">Default: bob.log in app directory</span>
       </div>
+
+      <div class="section-header">🔇 Silent Mode</div>
+
+      <div class="toggles">
+        <label class="checkbox">
+          <input
+            type="checkbox"
+            bind:checked={localSettings.silentModePreferred}
+          />
+          <span>Prefer silent mode (via companion extension)</span>
+        </label>
+      </div>
+      <span class="hint"
+        >When enabled, BOB uses the companion VS Code extension for actions
+        instead of PowerShell — no focus stealing.</span
+      >
     </div>
 
     <footer>

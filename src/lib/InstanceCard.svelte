@@ -138,6 +138,14 @@
     <div class="title">
       <span class="status-icon">{statusIcons[instance.status]}</span>
       <span class="name">{instance.projectName}</span>
+      {#if instance.connectionMode === "silent"}
+        <span class="silent-badge" title="Silent Mode — via companion extension"
+          >🔇</span
+        >
+      {:else}
+        <span class="legacy-badge" title="Legacy Mode — via PowerShell">🖥️</span
+        >
+      {/if}
     </div>
     <label class="toggle">
       <input type="checkbox" checked={instance.enabled} onchange={onToggle} />
@@ -420,5 +428,24 @@
     font-size: 0.8rem;
     color: #ff6b35;
     margin-top: 0.5rem;
+  }
+
+  .silent-badge {
+    font-size: 0.7rem;
+    background: rgba(0, 217, 255, 0.15);
+    border: 1px solid rgba(0, 217, 255, 0.3);
+    border-radius: 4px;
+    padding: 0.1rem 0.3rem;
+    cursor: help;
+  }
+
+  .legacy-badge {
+    font-size: 0.7rem;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    padding: 0.1rem 0.3rem;
+    opacity: 0.5;
+    cursor: help;
   }
 </style>

@@ -1,0 +1,58 @@
+{
+  "name": "bob-helper",
+  "displayName": "BOB Helper",
+  "description": "Companion extension for BOB Monitor — enables silent mode automation for Antigravity",
+  "version": "0.1.23",
+  "publisher": "timekast",
+  "engines": {
+    "vscode": "^1.93.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "BOB Helper",
+      "properties": {
+        "bobHelper.port": {
+          "type": "number",
+          "default": 9876,
+          "description": "WebSocket port to connect to BOB Monitor"
+        },
+        "bobHelper.autoConnect": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically connect to BOB on startup"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "bobHelper.connect",
+        "title": "BOB: Connect to Monitor"
+      },
+      {
+        "command": "bobHelper.disconnect",
+        "title": "BOB: Disconnect from Monitor"
+      },
+      {
+        "command": "bobHelper.status",
+        "title": "BOB: Show Connection Status"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.93.0",
+    "@types/ws": "^8.5.10",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}

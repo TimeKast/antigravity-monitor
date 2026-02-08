@@ -42,6 +42,13 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Build BOB Helper extension
+        run: |
+          cd bob-helper-extension
+          npm ci
+          npm run compile
+          npx @vscode/vsce package --out ../src-tauri/resources/bob-helper.vsix
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:

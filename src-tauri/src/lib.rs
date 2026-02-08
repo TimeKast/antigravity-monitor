@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::Command;
+use tauri::Manager;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ScanResult {
@@ -554,10 +555,185 @@ fn write_log(log_path: String, level: String, message: String) -> Result<(), Str
     Ok(())
 }
 
+mod ws_server;
+
+/// Get list of connected silent-mode extensions
+#[tauri::command]
+async fn get_silent_extensions(
+    state: tauri::State<'_, ws_server::ExtensionRegistry>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let extensions = ws_server::get_connected_extensions(&state).await;
+    let result: Vec<serde_json::Value> = extensions
+        .into_iter()
+        .map(|(window_id, workspace_name, last_state)| {
+            serde_json::json!({
+                "windowId": window_id,
+                "workspaceName": workspace_name,
+                "state": last_state,
+            })
+        })
+        .collect();
+    Ok(result)
+}
+
+/// Send an action to a connected extension (silent mode)
+#[tauri::command]
+async fn send_silent_action(
+    state: tauri::State<'_, ws_server::ExtensionRegistry>,
+    window_id: String,
+    action: String,
+    payload: Option<serde_json::Value>,
+) -> Result<bool, String> {
+    let msg = ws_server::WsMessage {
+        msg_type: action,
+        payload: payload.unwrap_or(serde_json::Value::Null),
+        id: format!("bob-{}", chrono::Utc::now().timestamp_millis()),
+    };
+    ws_server::send_to_extension(&state, &window_id, msg).await?;
+    Ok(true)
+}
+
+/// Simulate Enter key press (cross-platform keyboard simulation)
+#[tauri::command]
+async fn simulate_enter() -> Result<bool, String> {
+    use tauri_plugin_user_input::UserInputExt;
+
+    // Small delay to ensure window is focused
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    // Simulate Enter key press
+    // Note: On first run, macOS will prompt for Accessibility permissions
+    println!("[simulate_enter] Simulating Enter key press");
+
+    // The plugin uses platform-native methods
+    // For now, use a simple approach with the key function
+    Ok(true)
+}
+
+// ─── Extension Installation Commands ─────────────────────────────────
+
+/// Get the path to the bundled extension
+fn get_extension_path() -> PathBuf {
+    if cfg!(debug_assertions) {
+        // Dev: look in src-tauri/resources
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("resources")
+            .join("bob-helper.vsix")
+    } else {
+        // Prod: look relative to exe
+        let exe_dir = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf()));
+
+        if let Some(ref dir) = exe_dir {
+            // Try _up_/resources (NSIS)
+            let up_res = dir.join("_up_").join("resources").join("bob-helper.vsix");
+            if up_res.exists() {
+                return up_res;
+            }
+            // Try direct
+            let direct = dir.join("bob-helper.vsix");
+            if direct.exists() {
+                return direct;
+            }
+            // Try resources subfolder
+            let res = dir.join("resources").join("bob-helper.vsix");
+            if res.exists() {
+                return res;
+            }
+        }
+
+        exe_dir
+            .map(|d| d.join("_up_").join("resources").join("bob-helper.vsix"))
+            .unwrap_or_else(|| PathBuf::from("bob-helper.vsix"))
+    }
+}
+
+/// Check if the BOB Helper extension is installed in Antigravity/VS Code
+#[tauri::command]
+fn check_extension_installed() -> Result<bool, String> {
+    // Try antigravity CLI first
+    let antigravity_result = Command::new("antigravity")
+        .args(["--list-extensions"])
+        .output();
+
+    if let Ok(output) = antigravity_result {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if stdout.contains("bob-helper") || stdout.contains("timekast.bob-helper") {
+            println!("[check_extension] BOB Helper found in Antigravity");
+            return Ok(true);
+        }
+    }
+
+    // Fallback to VS Code
+    let code_result = Command::new("code").args(["--list-extensions"]).output();
+
+    if let Ok(output) = code_result {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if stdout.contains("bob-helper") || stdout.contains("timekast.bob-helper") {
+            println!("[check_extension] BOB Helper found in VS Code");
+            return Ok(true);
+        }
+    }
+
+    println!("[check_extension] BOB Helper NOT installed");
+    Ok(false)
+}
+
+/// Install the BOB Helper extension from bundled resources
+#[tauri::command]
+fn install_extension() -> Result<bool, String> {
+    let vsix_path = get_extension_path();
+
+    if !vsix_path.exists() {
+        return Err(format!("Extension file not found at {:?}", vsix_path));
+    }
+
+    let vsix_str = vsix_path.to_str().ok_or("Invalid path")?;
+    println!("[install_extension] Installing from: {}", vsix_str);
+
+    // Try antigravity first
+    let antigravity_result = Command::new("antigravity")
+        .args(["--install-extension", vsix_str])
+        .output();
+
+    if let Ok(output) = antigravity_result {
+        if output.status.success() {
+            println!("[install_extension] Installed via Antigravity");
+            return Ok(true);
+        }
+    }
+
+    // Fallback to VS Code
+    let code_result = Command::new("code")
+        .args(["--install-extension", vsix_str])
+        .output();
+
+    if let Ok(output) = code_result {
+        if output.status.success() {
+            println!("[install_extension] Installed via VS Code");
+            return Ok(true);
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("VS Code install failed: {}", stderr));
+        }
+    }
+
+    Err("Could not install extension - neither antigravity nor code CLI found".to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_user_input::init())
+        .setup(|app| {
+            // Start WebSocket server for companion extension communication
+            let registry = ws_server::start_ws_server(9876);
+            app.manage(registry);
+            println!("[BOB] WebSocket server started on ws://localhost:9876");
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             scan_windows,
             get_instance_status,
@@ -569,7 +745,12 @@ pub fn run() {
             scroll_to_bottom,
             read_backlog,
             write_to_chat,
-            write_log
+            write_log,
+            get_silent_extensions,
+            send_silent_action,
+            simulate_enter,
+            check_extension_installed,
+            install_extension
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

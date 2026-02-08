@@ -3,6 +3,7 @@
 import { writable, get } from 'svelte/store';
 import type { Instance, Settings } from './types';
 import { invoke } from '@tauri-apps/api/core';
+import { getSilentExtensions, matchExtensionToInstance, acceptAllSilent, acceptStepSilent, acceptTerminalSilent, sendPromptSilent, retrySilent, type SilentExtension } from './websocket';
 
 // Default settings
 const defaultSettings: Settings = {
@@ -27,7 +28,9 @@ const defaultSettings: Settings = {
     inactivityTimeoutMinutes: 20,  // Stop project if no prompt sent in 20 minutes
     // Logging settings
     loggingEnabled: true,
-    logFilePath: ''  // Empty = use default location (app data dir)
+    logFilePath: '',  // Empty = use default location (app data dir)
+    // Silent mode
+    silentModePreferred: true  // If true, prefer silent mode when extension is connected
 };
 
 // Load settings from localStorage
@@ -125,6 +128,9 @@ export async function scanForInstances(): Promise<void> {
 
         instances.set(newInstances);
         
+        // Check for silent mode extensions and update connection modes
+        await updateSilentModeConnections();
+        
         // Update backlog info for each instance (wait for it to complete)
         await updateInstanceBacklogs();
     } catch (error) {
@@ -204,6 +210,40 @@ export async function updateInstanceBacklogs(): Promise<void> {
         } catch (error) {
             console.warn(`[${instance.projectName}] Failed to read backlog:`, error);
         }
+    }
+}
+
+// Update silent mode connections - match extensions to instances
+export async function updateSilentModeConnections(): Promise<void> {
+    const currentSettings = get(settings);
+    if (!currentSettings.silentModePreferred) return;
+
+    try {
+        const extensions = await getSilentExtensions();
+        console.log(`[Silent] Found ${extensions.length} connected extensions`);
+
+        instances.update(list =>
+            list.map(instance => {
+                const match = matchExtensionToInstance(extensions, instance);
+                if (match) {
+                    console.log(`[Silent] ✅ ${instance.projectName} → extension ${match.windowId} (silent mode)`);
+                    return {
+                        ...instance,
+                        connectionMode: 'silent' as const,
+                        silentWindowId: match.windowId,
+                    };
+                } else {
+                    // No matching extension — use legacy mode
+                    return {
+                        ...instance,
+                        connectionMode: 'legacy' as const,
+                        silentWindowId: undefined,
+                    };
+                }
+            })
+        );
+    } catch (error) {
+        console.warn('[Silent] Failed to update connections:', error);
     }
 }
 
@@ -611,8 +651,15 @@ async function notifyStopCondition(instance: Instance, condition: string): Promi
 let pollingTimeout: ReturnType<typeof setTimeout> | null = null;
 
 async function pollOnce(): Promise<void> {
-    const currentInstances = get(instances);
     const currentSettings = get(settings);
+    
+    // ========== UPDATE SILENT MODE CONNECTIONS ==========
+    // Check for newly connected extensions before processing instances
+    // This ensures we detect extensions that connect after the initial scan
+    await updateSilentModeConnections();
+    
+    // Get fresh instance list after connection update
+    const currentInstances = get(instances);
     
     for (const instance of currentInstances) {
         if (!pollingActive) break; // Check if stopped
@@ -732,49 +779,51 @@ async function pollOnce(): Promise<void> {
             // Ignore backlog read errors, continue with detection
         }
         
-        try {
-            // Add timeout protection - max 45 seconds per instance
-            const timeoutPromise = new Promise<null>((_, reject) => 
-                setTimeout(() => reject(new Error('Timeout')), 45000)
-            );
-            
-            const detectPromise = detectUIState(instance.windowHandle);
-            const uiState = await Promise.race([detectPromise, timeoutPromise]);
-            
-            console.log(`[${instance.projectName}] UI State received:`, JSON.stringify(uiState));
-            
-            if (!uiState || !pollingActive) {
-                console.log(`[${instance.projectName}] Skipping - uiState null or polling stopped`);
-                continue;
-            }
-            
-            // DEBUG: Log what we received
-            console.log(`[${instance.projectName}] UI State: chatButtonColor=${uiState.chatButtonColor}, hasEnterButton=${uiState.hasEnterButton}, hasAcceptButton=${uiState.hasAcceptButton}`);
+        // ========== SILENT MODE PATH ==========
+        // If companion extension is connected, use WebSocket instead of pixel scanning
+        if (instance.connectionMode === 'silent' && instance.silentWindowId) {
+            try {
+                const extensions = await getSilentExtensions();
+                const ext = extensions.find(e => e.windowId === instance.silentWindowId);
+                const silentState = ext?.state;
 
-            // ========== STEP 1: Accept all (priority - immediate action) ==========
-            if (uiState.hasAcceptButton && uiState.isBottomButton) {
-                console.log(`[${instance.projectName}] Clicking Accept all at (${uiState.acceptButtonX}, ${uiState.acceptButtonY})`);
-                const acceptResult = await clickAcceptButton(instance.windowHandle, uiState.acceptButtonX, uiState.acceptButtonY);
-                console.log(`[${instance.projectName}] Accept all result: ${acceptResult}`);
-                instances.update(list =>
-                    list.map(i => i.id === instance.id
-                        ? { ...i, lastActivity: Date.now(), retryCount: 0 }
-                        : i
-                    )
-                );
-                continue;
-            }
+                if (!silentState) {
+                    console.log(`[${instance.projectName}] 🔇 Silent: no state yet, waiting...`);
+                    continue;
+                }
 
-            // ========== STEP 2: Check chat button color ==========
-            if (uiState.chatButtonColor === "gray") {
-                // GRAY = Chat is ready for input
-                
-                // First check for Retry button
-                if (uiState.hasRetryButton) {
-                    // Read maxRetries from current settings (not instance copy)
+                console.log(`[${instance.projectName}] 🔇 Silent state: accept=${silentState.hasAcceptButton}, retry=${silentState.hasRetryButton}, enter=${silentState.hasEnterButton}, terminal=${silentState.terminalPending}, working=${silentState.agentWorking}`);
+
+                // Accept terminal commands
+                if (silentState.terminalPending) {
+                    console.log(`[${instance.projectName}] 🔇 Accepting terminal command`);
+                    await acceptTerminalSilent(instance.silentWindowId);
+                    instances.update(list =>
+                        list.map(i => i.id === instance.id
+                            ? { ...i, lastActivity: Date.now(), retryCount: 0 }
+                            : i
+                        )
+                    );
+                    continue;
+                }
+
+                // Accept pending changes
+                if (silentState.hasAcceptButton) {
+                    console.log(`[${instance.projectName}] 🔇 Accepting changes`);
+                    await acceptAllSilent(instance.silentWindowId);
+                    instances.update(list =>
+                        list.map(i => i.id === instance.id
+                            ? { ...i, lastActivity: Date.now(), retryCount: 0 }
+                            : i
+                        )
+                    );
+                    continue;
+                }
+
+                // Handle retry
+                if (silentState.hasRetryButton) {
                     const maxRetries = currentSettings.maxRetries;
                     if (instance.retryCount >= maxRetries) {
-                        // Max retries reached - notify Discord and disable
                         instances.update(list =>
                             list.map(i => i.id === instance.id
                                 ? { ...i, isBlocked: true, blockReason: 'Max retries reached', status: 'error' as const, enabled: false }
@@ -782,37 +831,30 @@ async function pollOnce(): Promise<void> {
                             )
                         );
                         await notifyStopCondition(instance, 'Max retries reached');
-                        console.log(`[${instance.projectName}] Max retries (${maxRetries}) reached - Discord notified`);
                     } else {
-                        // Click retry and increment counter
-                        console.log(`[${instance.projectName}] Attempting click at Retry coordinates: (${uiState.retryButtonX}, ${uiState.retryButtonY})`);
-                        const clickResult = await clickRetryButton(instance.windowHandle, uiState.retryButtonX, uiState.retryButtonY);
-                        console.log(`[${instance.projectName}] Click result: ${clickResult}`);
+                        console.log(`[${instance.projectName}] 🔇 Retrying (${instance.retryCount + 1}/${maxRetries})`);
+                        await retrySilent(instance.silentWindowId);
                         instances.update(list =>
                             list.map(i => i.id === instance.id
                                 ? { ...i, retryCount: i.retryCount + 1, lastActivity: Date.now() }
                                 : i
                             )
                         );
-                        console.log(`[${instance.projectName}] Clicked Retry (${instance.retryCount + 1}/${maxRetries})`);
                     }
                     continue;
                 }
-                
-                // No Retry - send prompt (hasEnterButton should be true)
-                if (uiState.hasEnterButton) {
+
+                // Chat ready — send prompt
+                if (silentState.hasEnterButton && !silentState.agentWorking) {
                     const prompt = instance.customPrompt || currentSettings.autoPrompt;
-                    console.log(`[${instance.projectName}] Chat ready - sending prompt: "${prompt.substring(0, 50)}..."`);
-                    
-                    const writeResult = await writeToChat(instance.windowHandle, prompt);
-                    console.log(`[${instance.projectName}] writeToChat result: ${writeResult}`);
-                    
+                    console.log(`[${instance.projectName}] 🔇 Sending prompt: "${prompt.substring(0, 50)}..."`);
+                    await sendPromptSilent(instance.silentWindowId, prompt);
                     instances.update(list =>
                         list.map(i => i.id === instance.id
-                            ? { 
-                                ...i, 
-                                lastActivity: Date.now(), 
-                                lastPromptSent: Date.now(),  // Track when prompt was sent
+                            ? {
+                                ...i,
+                                lastActivity: Date.now(),
+                                lastPromptSent: Date.now(),
                                 stepCount: i.stepCount + 1,
                                 retryCount: 0,
                                 status: 'working' as const
@@ -820,57 +862,30 @@ async function pollOnce(): Promise<void> {
                             : i
                         )
                     );
+                    continue;
                 }
-                continue;
-            }
-            
-            // ========== STEP 3: Red button = Agent working, may have Accept dialog ==========
-            if (uiState.chatButtonColor === "red") {
-                // Check if there's an Accept dialog (Run command?, etc.)
-                if (uiState.hasAcceptButton && !uiState.isBottomButton) {
-                    console.log(`[${instance.projectName}] Agent working - found Accept dialog, sending Alt+Enter`);
-                    const acceptResult = await acceptDialog(instance.windowHandle);
-                    console.log(`[${instance.projectName}] Accept dialog result: ${acceptResult}`);
-                    instances.update(list =>
-                        list.map(i => i.id === instance.id
-                            ? { ...i, lastActivity: Date.now(), retryCount: 0 }
-                            : i
-                        )
-                    );
-                } else {
-                    // Agent is working, nothing to do
-                    console.log(`[${instance.projectName}] Agent working (red button) - waiting...`);
-                }
-                continue;
-            }
-            
-            // ========== STEP 4: Accept dialog detected but chatButtonColor unknown ==========
-            // This can happen when the dialog appears but we couldn't sample the chat button
-            if (uiState.hasAcceptButton && !uiState.isBottomButton) {
-                console.log(`[${instance.projectName}] Found Accept dialog (color unknown), sending Alt+Enter`);
-                const acceptResult = await acceptDialog(instance.windowHandle);
-                console.log(`[${instance.projectName}] Accept dialog result: ${acceptResult}`);
-                instances.update(list =>
-                    list.map(i => i.id === instance.id
-                        ? { ...i, lastActivity: Date.now(), retryCount: 0 }
-                        : i
-                    )
-                );
-                continue;
-            }
-            
-            // ========== Unknown state - try to scroll to bottom ==========
-            // This can happen when scroll is stuck at top and we can't see the buttons
-            console.log(`[${instance.projectName}] Unknown state - scrolling to bottom (chatButtonColor: ${uiState.chatButtonColor})`);
-            await scrollToBottom(instance.windowHandle);
 
-        } catch (error) {
-            if (error instanceof Error && error.message === 'Timeout') {
-                console.warn(`[${instance.projectName}] Detection timeout - skipping`);
-            } else {
-                console.error(`[${instance.projectName}] Error during polling:`, error);
+                // Agent working, nothing to do
+                if (silentState.agentWorking) {
+                    console.log(`[${instance.projectName}] 🔇 Agent working - waiting...`);
+                }
+                continue;
+
+            } catch (error) {
+                console.warn(`[${instance.projectName}] 🔇 Silent mode error, falling back to legacy:`, error);
+                // Fall through to legacy detection below
             }
         }
+
+        // ========== LEGACY MODE DISABLED ==========
+        // Silent mode is required. If no extension connected, skip this instance.
+        console.log(`[${instance.projectName}] ⚠️ No silent mode connection - skipping (install bob-helper extension in Antigravity)`);
+        instances.update(list =>
+            list.map(i => i.id === instance.id
+                ? { ...i, status: 'idle' as const }
+                : i
+            )
+        );
     }
 }
 

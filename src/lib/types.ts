@@ -23,6 +23,9 @@ export interface Instance {
     blockReason?: string;
     issuesCompleted?: number;
     lastPromptSent?: number;  // Timestamp of last prompt sent (for inactivity timeout)
+    // Silent mode fields
+    connectionMode?: 'silent' | 'legacy';  // 'silent' = via companion extension, 'legacy' = via PowerShell
+    silentWindowId?: string;  // WebSocket window ID of companion extension
 }
 
 export interface Settings {
@@ -41,6 +44,8 @@ export interface Settings {
     // Logging settings
     loggingEnabled: boolean;
     logFilePath: string;  // Path to log file (e.g., "C:/logs/antigravity.log")
+    // Silent mode
+    silentModePreferred: boolean;  // If true, prefer silent mode when extension is connected
 }
 
 export interface ScanResult {
