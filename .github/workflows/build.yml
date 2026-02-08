@@ -33,6 +33,10 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Setup MSVC (Windows only)
+        if: matrix.platform == 'windows-latest'
+        uses: ilammy/msvc-dev-cmd@v1
+
       - name: Install dependencies (Ubuntu only)
         if: matrix.platform == 'ubuntu-22.04'
         run: |
